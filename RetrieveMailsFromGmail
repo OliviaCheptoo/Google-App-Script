@@ -1,0 +1,61 @@
+function separateEmailsIntoSheets() {
+  var searchQuery = 'subject:"HOTPOINT BALANCE CONFIRMATION" after:2025/01/13 before:2025/01/15'; // Search query
+  var repliedEmails = [];
+  var unrepliedEmails = [];
+  
+  var batchSize = 500; // Maximum number of threads to fetch in one call
+  var offset = 0; // Starting point for pagination
+
+  // Create or access the spreadsheet
+  var spreadsheet = SpreadsheetApp.create("Email Summary");
+  
+  // Create sheets for replied and unreplied emails
+  var repliedSheet = spreadsheet.getActiveSheet();
+  repliedSheet.setName("Replied Emails");
+  repliedSheet.appendRow(["From", "Subject", "Date"]); // Header row
+
+  var unrepliedSheet = spreadsheet.insertSheet("Unreplied Emails");
+  unrepliedSheet.appendRow(["From", "Subject", "Date"]); // Header row
+
+  while (true) {
+    var threads = GmailApp.search(searchQuery, offset, batchSize); // Fetch threads with pagination
+    if (threads.length === 0) {
+      break; // Exit loop if no more threads are found
+    }
+    
+    // Loop through each thread to check for reply status
+    threads.forEach(function(thread) {
+      var messages = thread.getMessages();
+      var subject = messages[0].getSubject();
+      var from = messages[0].getFrom();
+      var date = messages[0].getDate();
+      
+      if (messages.length > 1) { // If there are replies
+        repliedEmails.push([from, subject, date]);
+        Logger.log("Replied Email: From: " + from + ", Subject: " + subject + ", Date: " + date);
+      } else { // If there are no replies
+        unrepliedEmails.push([from, subject, date]);
+        Logger.log("Unreplied Email: From: " + from + ", Subject: " + subject + ", Date: " + date);
+      }
+    });
+
+    Logger.log("Fetched " + threads.length + " threads from offset " + offset); // Log the number of threads fetched
+    offset += batchSize; // Move to the next batch
+  }
+
+  // Populate the replied emails sheet
+  if (repliedEmails.length > 0) {
+    repliedSheet.getRange(2, 1, repliedEmails.length, repliedEmails[0].length).setValues(repliedEmails);
+  }
+
+  // Populate the unreplied emails sheet
+  if (unrepliedEmails.length > 0) {
+    unrepliedSheet.getRange(2, 1, unrepliedEmails.length, unrepliedEmails[0].length).setValues(unrepliedEmails);
+  }
+
+  // Log the counts of replied and unreplied emails
+  Logger.log("Total Replied Emails: " + repliedEmails.length);
+  Logger.log("Total Unreplied Emails: " + unrepliedEmails.length);
+  
+  Logger.log("Emails have been separated into sheets.");
+}
