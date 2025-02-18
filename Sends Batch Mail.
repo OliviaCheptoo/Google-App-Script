@@ -1,0 +1,59 @@
+function main() {
+  var searchQuery = 'subject:"HOTPOINT BALANCE CONFIRMATION" after:2025/01/13 before:2025/01/15';
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = spreadsheet.getSheetByName("YourSheetName"); 
+  var batchSize = 500; 
+  var start = 0; 
+
+  processMailboxWithReminders(searchQuery, sheet, batchSize, start);
+}
+
+function processMailboxWithReminders(query, sheet, batchSize, start) {
+  var totalProcessed = 0;
+  var data = [];
+
+  while (true) {
+    var threads = GmailApp.search(query, start, batchSize);
+    if (threads.length === 0) break;  // Stop when no more emails are found
+
+    for (var i = 0; i < threads.length; i++) {
+      var messages = threads[i].getMessages();
+      var hasReply = false;
+
+      for (var j = 1; j < messages.length; j++) {
+        if (messages[j].getFrom() !== messages[0].getFrom()) {
+          hasReply = true;
+          break;
+        }
+      }
+
+      if (!hasReply) {
+        var originalSender = messages[0].getFrom();
+        var senderEmail = originalSender.match(/<(.+?)>/);
+        if (senderEmail) originalSender = senderEmail[1];
+        sendReminder(originalSender, messages[0].getSubject());
+      }
+
+      data.push(extractDetails(messages[0]));
+      totalProcessed++;
+    }
+
+    start += batchSize;  // Move to the next batch of 500 emails
+    Utilities.sleep(1000);  // Pause to prevent hitting rate limits
+  }
+
+  if (data.length > 0) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, data.length, data[0].length).setValues(data);
+  }
+
+  Logger.log("Total processed threads: " + totalProcessed);
+}
+
+function sendReminder(recipient, subject) {
+  var reminderMessage = "This is a reminder regarding your email about: " + subject;
+  GmailApp.sendEmail(recipient, "Reminder: " + subject, reminderMessage);
+}
+
+function extractDetails(message) {
+  return [message.getTo(), message.getSubject(), message.getDate()];
+}
