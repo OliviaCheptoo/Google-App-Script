@@ -1,0 +1,25 @@
+function sendReminderEmails() {
+  var searchQuery = 'subject:"HOTPOINT BALANCE CONFIRMATION" after:2025/01/13 before:2025/01/15'; // Search query
+  var threads = GmailApp.search(searchQuery);
+  
+  threads.forEach(function(thread) {
+    var messages = thread.getMessages();
+    var lastMessage = messages[messages.length - 1];
+    var subject = last Message.getSubject();
+    var body = "This is a friendly reminder regarding the previous email. Please let me know if you have any updates."; // Reminder message body
+    var recipients = lastMessage.getTo().split(","); // Get the recipients from the last message
+
+    // Check if there are replies in the thread
+    if (messages.length === 1) { // No replies
+      recipients.forEach(function(recipient) {
+        // Send the reminder email to each recipient
+        GmailApp.sendEmail(recipient.trim(), "Re: " + subject, body, {
+          threadId: thread.getId() // Keep the email in the same thread
+        });
+        Logger.log("Sent reminder to: " + recipient.trim());
+      });
+    }
+  });
+  
+  Logger.log("Reminder emails have been sent to non-responders.");
+}
