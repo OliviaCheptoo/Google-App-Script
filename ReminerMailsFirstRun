@@ -1,0 +1,91 @@
+function replyToUnrepliedEmails() {
+  var TEST_MODE = false; // Set to false for live execution
+  var searchQuery = 'subject:"HOTPOINT BALANCE CONFIRMATION" after:2025/01/13 before:2025/01/15';
+  var batchSize = 500;
+  var timeZone = Session.getScriptTimeZone();
+  
+  // Get active spreadsheet and create log sheet if missing
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var sheetName = "Email Logs";
+  var sheet = spreadsheet.getSheetByName(sheetName);
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(sheetName);
+    sheet.appendRow(["To", "Subject", "Date", "Reply Status", "Timestamp"]); 
+  }
+
+  var offset = 0;
+  var repliedEmailsLog = [];
+  var startTime = new Date().getTime();
+  var totalReplied = 0; // Track number of replies sent
+  var delayBetweenBatches = 1000; // Delay in milliseconds
+
+  while (true) {
+    Logger.log("Fetching threads with query: " + searchQuery + " at offset " + offset);
+    var threads = GmailApp.search(searchQuery, offset, batchSize);
+    Logger.log("Fetched " + threads.length + " threads at offset " + offset);
+
+    if (threads.length === 0) {
+      Logger.log("No more threads to process.");
+      break;
+    }
+
+    threads.forEach(function (thread) {
+      var messages = thread.getMessages();
+      Logger.log("Processing thread with " + messages.length + " messages.");
+
+      // Only reply to emails that have exactly 1 message (no replies)
+      if (messages.length === 1) {
+        var lastMessage = messages[0];
+
+        // Ensure we don’t reprocess the same email
+        if (!lastMessage.isStarred()) {
+          var recipient = lastMessage.getTo();
+          var subject = lastMessage.getSubject();
+          var date = Utilities.formatDate(lastMessage.getDate(), timeZone, "dd/MM/yyyy"); // Format date as needed
+          var timestamp = Utilities.formatDate(new Date(), timeZone, "yyyy-MM-dd HH:mm:ss");
+
+          var replyBody = "Dear Customer,\n\n" +
+                          "This is a gentle reminder to you to kindly respond to our balance confirmation request dated " + date + ".\n\n" +
+                          "We look forward to your feedback.\n\n" +
+                          "Regards.";
+
+          try {
+            if (!TEST_MODE) {
+              lastMessage.reply(replyBody);
+              lastMessage.star(); // Mark as processed
+            }
+          } catch (error) {
+            Logger.log("Error replying to email: " + error.message);
+          }
+
+          Logger.log((TEST_MODE ? "[TEST] " : "[SENT] ") + "Replied to: " + recipient + ", Subject: " + subject);
+
+          repliedEmailsLog.push([recipient, subject, date, TEST_MODE ? "TEST - No Reply Sent" : "Reply Sent", timestamp]);
+          totalReplied++;
+        } else {
+          Logger.log("Skipping already replied email: " + subject);
+        }
+      } else {
+        Logger.log("Skipping thread with " + messages.length + " messages.");
+      }
+    });
+
+    offset += batchSize; // Move to the next batch
+
+    // Add a delay between batches
+    Utilities.sleep(delayBetweenBatches);
+
+    // Log replies in Google Sheets only if new replies exist
+    if (repliedEmailsLog.length > 0) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, repliedEmailsLog.length, repliedEmailsLog[0].length).setValues(repliedEmailsLog);
+    }
+
+    Logger.log("Total emails replied to in this run: " + totalReplied);
+
+    // Stop execution if time limit is close
+    if (new Date().getTime() - startTime > 280000) { // 4 minutes
+      Logger.log("Execution time limit approaching, stopping further processing.");
+      break;
+    }
+  }
+}
