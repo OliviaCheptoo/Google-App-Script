@@ -1,0 +1,103 @@
+var batchSize = 500; // Process 500 emails per batch
+var TEST_MODE = false; // Set to true for testing
+var searchQuery = 'subject:"HOTPOINT BALANCE CONFIRMATION" after:2025/01/13 before:2025/01/15';
+var logSheetName = "Email Log"; // Name of the sheet to log sent emails
+
+function replyToUnrepliedEmails() {
+  var properties = PropertiesService.getScriptProperties();
+  var offset = parseInt(properties.getProperty("offset")) || 0; // Get last offset or start at 0
+
+  var threads = GmailApp.search(searchQuery, offset, batchSize);
+  if (threads.length === 0) {
+    Logger.log("No more threads to process. Resetting offset.");
+    properties.deleteProperty("offset"); // Reset offset for next run
+    return;
+  }
+
+  Logger.log("Processing " + threads.length + " threads at offset " + offset);
+
+  var today = new Date();
+  today.setHours(0, 0, 0, 0);
+  var repliesSentCount = 0;
+  var skippedThreads = [];
+
+  threads.forEach(function (thread) {
+    var messages = thread.getMessages();
+    var threadId = thread.getId();
+    var replySentToday = false;
+    var hasReplyFromMe = false;
+
+    messages.forEach(function(message) {
+      var sender = message.getFrom();
+      var messageDate = message.getDate();
+      messageDate.setHours(0, 0, 0, 0);
+
+      if (sender.includes(Session.getActiveUser().getEmail())) {
+        hasReplyFromMe = true;
+        if (messageDate.getTime() === today.getTime()) {
+          replySentToday = true;
+        }
+      }
+    });
+
+    var replyBody = "Dear Customer,\n\n" +
+                    "This is a gentle reminder to you to kindly respond to our balance confirmation request dated " + 
+                    Utilities.formatDate(messages[0].getDate(), Session.getScriptTimeZone(), "dd/MM/yyyy") + ".\n\n" +
+                    "We look forward to your feedback.\n\n" +
+                    "Regards.";
+
+    if (messages.length === 1 || replySentToday) {
+      try {
+        repliesSentCount++;
+
+        if (!TEST_MODE) {
+          thread.replyAll(replyBody);
+          Logger.log("Replied to all in thread: " + threadId);
+        } else {
+          Logger.log("TEST_MODE: Would have replied to all in thread: " + threadId);
+        }
+
+        logEmailSent(threadId);
+      } catch (error) {
+        Logger.log("Error sending reply: " + error.message);
+      }
+    } else {
+      skippedThreads.push(threadId);
+      Logger.log("Skipping thread: " + threadId + " (No reply needed)");
+    }
+  });
+
+  Logger.log("Total replies sent (or would have been sent): " + repliesSentCount);
+  Logger.log("Skipped threads: " + skippedThreads.length);
+
+  // ✅ Update offset and schedule next batch
+  properties.setProperty("offset", offset + threads.length);
+  
+  ScriptApp.newTrigger('replyToUnrepliedEmails')
+      .timeBased()
+      .after(2 * 60 * 1000) // 2-minute delay
+      .create();
+}
+
+// ✅ Function to log sent emails
+function logEmailSent(threadId) {
+  var sheet = getLogSheet();
+  sheet.appendRow([threadId, new Date()]);
+}
+
+// ✅ Function to get log sheet
+function getLogSheet() {
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = spreadsheet.getSheetByName(logSheetName);
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(logSheetName);
+    sheet.appendRow(["Thread ID", "Timestamp"]);
+  }
+  return sheet;
+}
+
+// ✅ Start batch processing
+function startBatchProcessing() {
+  PropertiesService.getScriptProperties().setProperty("offset", "0"); // Reset offset
+  replyToUnrepliedEmails();
+}
