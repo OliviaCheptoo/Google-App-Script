@@ -1,0 +1,57 @@
+var batchSize = 500; // Process emails in batches of up to 500
+var TEST_MODE = false; // Set to true for testing
+var searchQuery = 'subject:"HOTPOINT BALANCE CONFIRMATION" after:2025/01/13 before:2025/01/15'; // Define search criteria
+
+function replyToEmailsFrom501() {
+  var properties = PropertiesService.getScriptProperties();
+  
+  // Fetch next batch starting from email #501
+  var threads = GmailApp.search(searchQuery, 500, batchSize); // Skip first 500, fetch next batch
+
+  if (threads.length === 0) {
+    Logger.log("No emails left to process after skipping the first 500.");
+    return;
+  }
+
+  Logger.log("Processing " + threads.length + " threads (Starting at Email #501).");
+  var repliesSent = 0;
+
+  threads.forEach(function (thread) {
+    var messages = thread.getMessages();
+    Logger.log("Processing thread with " + messages.length + " messages.");
+
+    if (messages.length !== 1) {
+      Logger.log("Skipping thread ID: " + thread.getId() + ", as it does not have exactly one message.");
+      return;
+    }
+
+    var originalMessage = messages[0];
+
+    var replyBody = "Dear Customer,\n\n" +
+                    "This is a gentle reminder to you to kindly respond to our balance confirmation request dated " + 
+                    Utilities.formatDate(originalMessage.getDate(), Session.getScriptTimeZone(), "dd/MM/yyyy") + ".\n\n" +
+                    "We look forward to your feedback.\n\n" +
+                    "Regards.";
+
+    try {
+      if (!TEST_MODE) {
+        originalMessage.replyAll(replyBody);
+        Logger.log("Replied to thread: " + thread.getId());
+      } else {
+        Logger.log("TEST_MODE: Would have replied to thread: " + thread.getId());
+      }
+      repliesSent++;
+    } catch (error) {
+      Logger.log("Error sending reply: " + error.message);
+    }
+
+    Utilities.sleep(2000); // Prevent hitting Gmail rate limits
+  });
+
+  var totalRepliesSent = parseInt(properties.getProperty("totalRepliesSent")) || 0;
+  totalRepliesSent += repliesSent;
+  properties.setProperty("totalRepliesSent", totalRepliesSent);
+
+  Logger.log("Batch completed. Replies sent in this batch: " + repliesSent);
+  Logger.log("Total replies sent so far: " + totalRepliesSent);
+}
