@@ -1,0 +1,86 @@
+var batchSize = 500; // Process emails in batches of 500
+var TEST_MODE = false; // Set to true for testing
+var searchQuery = 'subject:"HOTPOINT BALANCE CONFIRMATION" after:2025/01/13 before:2025/01/15'; // Define search criteria
+
+function replyToUnrepliedEmails() {
+  var properties = PropertiesService.getScriptProperties();
+  var threads = GmailApp.search(searchQuery, 0, batchSize);
+  
+  if (threads.length === 0) {
+    Logger.log("No more threads to process.");
+    return;
+  }
+
+  Logger.log("Processing " + threads.length + " threads.");
+  var repliesSent = 0; // Local counter for replies sent
+
+  // Define the cutoff time (2 PM yesterday)
+  var cutoffTime = new Date();
+  cutoffTime.setDate(cutoffTime.getDate() - 1); // Set to yesterday
+  cutoffTime.setHours(14, 0, 0, 0); // Set to 2 PM
+
+  threads.forEach(function (thread) {
+    var messages = thread.getMessages();
+    Logger.log("Processing thread with " + messages.length + " messages.");
+
+    if (messages.length === 0) {
+      Logger.log("Skipping empty thread: " + thread.getId());
+      return;
+    }
+
+    var originalMessage = messages[0]; // Get the first message in the thread
+    var shouldSkip = false; // Flag to determine if we should skip this thread
+
+    // Check all messages in the thread
+    for (var i = 0; i < messages.length; i++) {
+      var messageDate = messages[i].getDate(); // Get the date of the current message
+      // Check if any message was sent at or after 2 PM yesterday
+      if (messageDate.getTime() >= cutoffTime.getTime()) {
+        Logger.log("Skipping thread with ID: " + thread.getId() + ", as a message was sent at or after 2 PM yesterday.");
+        shouldSkip = true; // Set the flag to skip this thread
+        break; // No need to check further messages
+      }
+    }
+
+    // If we should skip this thread, do not proceed to reply
+    if (shouldSkip) {
+      return; // Exit the current iteration of the forEach loop
+    }
+
+    // Construct the reply message
+    var replyBody = "Dear Customer,\n\n" +
+                    "This is a gentle reminder to you to kindly respond to our balance confirmation request dated " + 
+                    Utilities.formatDate(originalMessage.getDate(), Session.getScriptTimeZone(), "dd/MM/yyyy") + ".\n\n" +
+                    "We look forward to your feedback.\n\n" +
+                    "Regards.";
+
+    // Send the reply to everyone in the original thread
+    try {
+      if (!TEST_MODE) {
+        originalMessage.replyAll(replyBody); // Reply from the first/original message
+        Logger.log("Replied to all from the original message in thread: " + thread.getId());
+      } else {
+        Logger.log("TEST_MODE: Would have replied to all from the original message in thread: " + thread.getId());
+      }
+      repliesSent++; // Increment the counter regardless of TEST_MODE
+    } catch (error) {
+      Logger.log("Error sending reply to all: " + error.message);
+    }
+
+    // Introduce a delay to avoid hitting the rate limit
+    Utilities.sleep(2000); // Sleep for 2 seconds (2000 milliseconds)
+  });
+
+  // Update the total replies sent in properties
+  var totalRepliesSent = parseInt(properties.getProperty("totalRepliesSent")) || 0; // Get the current total or start at 0
+  totalRepliesSent += repliesSent; // Add the local count to the total
+  properties.setProperty("totalRepliesSent", totalRepliesSent); // Store the updated total
+
+  Logger.log("Batch completed. Replies that would be sent in this batch: " + repliesSent);
+  Logger.log("Total replies sent so far (including test mode): " + totalRepliesSent); // Log the total replies sent
+}
+
+// To start the process
+function startBatchProcessing() {
+  replyToUnrepliedEmails();
+}
