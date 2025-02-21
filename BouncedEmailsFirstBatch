@@ -1,0 +1,91 @@
+var searchQuery = 'subject:"HOTPOINT BALANCE CONFIRMATION" after:2025/01/13 before:2025/01/15';
+
+function checkBouncedEmails() {
+  var threads = GmailApp.search(searchQuery);
+  var bouncedEmails = [];
+  var myEmail = Session.getActiveUser().getEmail(); // Your email
+
+  Logger.log("Checking for bounced emails in " + threads.length + " threads...");
+
+  threads.forEach(function (thread) {
+    var messages = thread.getMessages();
+    var lastMessage = messages[messages.length - 1]; // Get the last message
+    var body = lastMessage.getBody();
+    var headers = lastMessage.getRawContent(); // Get raw headers
+
+    if (isBounceMessage(body) || isBounceMessage(headers)) {
+      var bouncedEmail = extractBouncedEmail(body, myEmail) || extractBouncedEmail(headers, myEmail);
+      
+      // If we couldn't extract from bounce, check the original sent email
+      if (!bouncedEmail) {
+        bouncedEmail = getOriginalRecipient(messages);
+      }
+
+      if (bouncedEmail) {
+        Logger.log("❌ Bounced Email Detected: " + bouncedEmail);
+        bouncedEmails.push([bouncedEmail]); // Store in array for Sheets
+      }
+    }
+  });
+
+  if (bouncedEmails.length > 0) {
+    Logger.log("Total Bounced Emails: " + bouncedEmails.length);
+    saveToSheet(bouncedEmails); // Save to Google Sheets
+  } else {
+    Logger.log("✅ No bounced emails found.");
+  }
+}
+
+// Save bounced emails to Google Sheets
+function saveToSheet(data) {
+  var sheetName = "BouncedEmails";
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(sheetName);
+
+  // Create sheet if it doesn't exist
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+    sheet.appendRow(["Bounced Email Address"]); // Add header
+  }
+
+  // Append bounced emails
+  sheet.getRange(sheet.getLastRow() + 1, 1, data.length, 1).setValues(data);
+  Logger.log("✅ Bounced emails saved to sheet: " + sheetName);
+}
+
+// Check if the message contains bounce keywords
+function isBounceMessage(content) {
+  if (!content) return false;
+  var bounceKeywords = [
+    "Delivery Status Notification", "Message Delivery Failure", "Undelivered Mail",
+    "Returned Mail", "Mail Delivery Subsystem", "delivery has failed",
+    "Permanent Failure", "Recipient address rejected"
+  ];
+  return bounceKeywords.some(keyword => content.includes(keyword));
+}
+
+// Extract the bounced recipient, avoiding your own email
+function extractBouncedEmail(content, myEmail) {
+  if (!content) return null;
+  
+  var match = content.match(/(?:Final-Recipient|Original Recipient|To):.*?\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b/);
+  if (match) {
+    var email = match[1];
+    if (email !== myEmail) return email; // Ignore your email
+  }
+  
+  return null;
+}
+
+// Get the original "To" email from the first message in the thread
+function getOriginalRecipient(messages) {
+  if (messages.length > 1) {
+    var firstMessage = messages[0]; // First message (originally sent email)
+    var recipients = firstMessage.getTo().split(','); // Get all recipients
+
+    if (recipients.length > 0) {
+      return recipients[0].trim(); // Return the first recipient
+    }
+  }
+  return null;
+}
